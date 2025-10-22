@@ -46,7 +46,6 @@ class Blockchain:
     def get_latest_block(self):
         return self.chain[-1]
 
-    # 署名検証
     def verify_transaction(self, tx: Transaction):
         if tx.sender == "system":
             return True
