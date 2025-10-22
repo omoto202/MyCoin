@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>MyCoin Wallet</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/elliptic/6.6.1/elliptic.min.js"></script>
+<script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+<style>
+body{font-family:Arial;padding:20px;background:#f5f5f5}
+input{margin:5px 0;padding:5px;width:300px}
+button{padding:5px 10px}
+#result,#balance,#history,#keys,#mineResult{margin-top:20px}
+textarea{width:100%;resize:none}
+</style>
+</head>
+<body>
+<h1>MyCoin Wallet</h1>
+
+<h2>鍵管理</h2>
+<button onclick="generateKeys()">鍵ペア生成</button>
+<button onclick="resetKeys()">鍵ペアリセット</button>
+<div id="keys"></div>
+
+<h2>トークン送信</h2>
+<form id="txForm">
+<input name="recipient" placeholder="受信者アドレス" required /><br />
+<input name="amount" type="number" step="0.01" placeholder="金額" required /><br />
+<button type="submit">送信</button>
+</form>
+<div id="result"></div>
+
+<h2>残高確認</h2>
+<form id="balanceForm">
+  <input name="address" placeholder="アドレスを入力" required />
+  <button type="submit">残高取得</button>
+</form>
+<div id="balance"></div>
+
+<h2>履歴確認</h2>
+<input id="historyAddress" placeholder="アドレスを入力" />
+<button onclick="loadHistory()">履歴表示</button>
+<div id="history"></div>
+
+<h2>マイニング</h2>
+<button onclick="mine()">マイニング開始</button>
+<div id="mineResult"></div>
+
+<script>
+const EC = elliptic.ec;
+const ec = new EC('secp256k1');
+let socket = io();
+
+function generateKeys(){
+  const key = ec.genKeyPair();
+  localStorage.setItem('privateKey', key.getPrivate('hex'));
+  localStorage.setItem('publicKey', key.getPublic('hex'));
+  updateKeysUI();
+  updateBalance();
+  loadHistory();
+}
+
+function resetKeys(){
+  localStorage.removeItem('privateKey');
+  localStorage.removeItem('publicKey');
+  document.getElementById('keys').innerHTML = "<i>鍵ペアリセット済み</i>";
+  document.getElementById('balance').innerText = 0;
+  document.getElementById('history').innerHTML = "";
+}
+
+function updateKeysUI(){
+  const pub = localStorage.getItem('publicKey');
+  const priv = localStorage.getItem('privateKey');
+  if(pub && priv){
+    document.getElementById('keys').innerHTML = `
+      <b>公開鍵:</b><br><textarea rows="2">${pub}</textarea>
+      <b>秘密鍵:</b><br><textarea rows="2">${priv}</textarea>
+    `;
+  }
+}
+
+async function updateBalance(){
+  const pub = localStorage.getItem('publicKey');
+  if(pub){
+    const res = await fetch('/balance/' + pub);
+    const data = await res.json();
+    document.getElementById('balance').innerText = `残高: ${data.balance}`;
+  }
+}
+
+async function loadHistory(){
+  const address = document.getElementById('historyAddress').value || localStorage.getItem('publicKey');
+  if(!address) return;
+  const res = await fetch('/chain');
+  const data = await res.json();
+  let html = '';
+  data.chain.forEach(block=>{
+    block.transactions.forEach(tx=>{
+      if(tx.sender===address) html += `送金: ${tx.amount} → ${tx.recipient}<br>`;
+      else if(tx.recipient===address) html += `受取: ${tx.amount} ← ${tx.sender}<br>`;
+    });
+  });
+  document.getElementById('history').innerHTML = html;
+}
+
+document.getElementById("txForm").onsubmit = async function(e){
+  e.preventDefault();
+  const senderKey = localStorage.getItem('privateKey');
+  const pubKey = localStorage.getItem('publicKey');
+  if(!senderKey || !pubKey){
+    alert("鍵ペアがありません");
+    return;
+  }
+  const sender = pubKey;
+  const recipient = e.target.recipient.value;
+  const amount = parseFloat(e.target.amount.value);
+
+  const key = ec.keyFromPrivate(senderKey,'hex');
+  const msg = `${sender}->${recipient}:${amount}`;
+  const signature = key.sign(msg).toDER('hex');
+
+  const res = await fetch('/transactions/new',{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({sender,recipient,amount,signature})
+  });
+  document.getElementById('result').innerText = await res.text();
+};
+
+document.getElementById("balanceForm").onsubmit = async function(e){
+  e.preventDefault();
+  const address = e.target.address.value;
+  const res = await fetch('/balance/' + address);
+  const data = await res.json();
+  document.getElementById('balance').innerText = `アドレス ${address} の残高: ${data.balance}`;
+};
+
+async function mine(){
+  const miner = localStorage.getItem('publicKey') || 'anonymous';
+  const res = await fetch('/mine?miner=' + miner);
+  document.getElementById('mineResult').innerText = await res.text();
+}
+
+socket.on('update', msg=>{
+  updateBalance();
+  loadHistory();
+});
+
+updateKeysUI();
+updateBalance();
+loadHistory();
+</script>
+</body>
+</html>
