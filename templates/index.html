@@ -36,10 +36,38 @@ textarea{width:100%;resize:none}
 </form>
 <div id="balance"></div>
 
-<h2>履歴確認</h2>
-<input id="historyAddress" placeholder="アドレスを入力" />
-<button onclick="loadHistory()">履歴表示</button>
-<div id="history"></div>
+<h2>トランザクション</h2>
+<button id="loadChain">履歴表示</button>
+
+<div id="history" style="margin-top: 10px; white-space: pre-wrap; background: #fff; padding: 10px; border-radius: 8px;"></div>
+
+<script>
+  document.getElementById("loadChain").onclick = async function() {
+    const res = await fetch('/chain');
+    const json = await res.json();
+
+    let text = "";
+    json.chain.forEach((block, index) => {
+      text += `ブロック #${index}\n`;
+      text += `Timestamp: ${new Date(block.timestamp * 1000).toLocaleString()}\n`;
+      text += `Hash: ${block.hash}\n`;
+      text += `Prev: ${block.prev_hash}\n`;
+      text += `Transactions:\n`;
+
+      if (block.transactions.length === 0) {
+        text += "  （トランザクションなし）\n";
+      } else {
+        block.transactions.forEach(tx => {
+          text += `  ${tx.sender} → ${tx.recipient}: ${tx.amount}\n`;
+        });
+      }
+
+      text += `\n--------------------------------------\n`;
+    });
+
+    document.getElementById("history").innerText = text;
+  };
+</script>
 
 <h2>マイニング</h2>
 <button onclick="mine()">マイニング開始</button>
