@@ -56,11 +56,9 @@ textarea { width: 100%; }
 </div>
 
 <script>
-// elliptic setup
 const ec = new elliptic.ec('secp256k1');
 const socket = io();
 
-// helper: store/load keys
 function saveKeys(pub, priv) {
   localStorage.setItem('publicKey', pub);
   localStorage.setItem('privateKey', priv);
@@ -82,17 +80,15 @@ function updateKeysUI() {
   }
 }
 
-// generate keys
 document.getElementById('genBtn').onclick = function(){
   const key = ec.genKeyPair();
   const priv = key.getPrivate('hex');
-  const pub = key.getPublic('hex'); // uncompressed hex starting with '04'
+  const pub = key.getPublic('hex');
   saveKeys(pub, priv);
   updateKeysUI();
   updateBalance(); loadChain();
 };
 
-// reset keys
 document.getElementById('resetBtn').onclick = function(){
   localStorage.removeItem('publicKey');
   localStorage.removeItem('privateKey');
@@ -101,42 +97,29 @@ document.getElementById('resetBtn').onclick = function(){
   document.getElementById('history').innerText = "";
 };
 
-// transaction submit (署名付き、amount を 8桁固定で送る)
 document.getElementById('txForm').onsubmit = async function(e){
   e.preventDefault();
-  const { publicKey, privateKey } = loadKeys();
-  if(!publicKey || !privateKey) { alert("鍵を生成してください"); return; }
+  const { publicKey } = loadKeys();
+  if(!publicKey) { alert("鍵を生成してください"); return; }
 
   const recipient = e.target.recipient.value.trim();
-  const amountRaw = parseFloat(e.target.amount.value);
-  if(!recipient || isNaN(amountRaw)) { alert("正しい入力をしてください"); return; }
-  const amount = amountRaw.toFixed(8);
+  const amount = e.target.amount.value.trim();
+  if(!recipient || !amount) { alert("正しい入力をしてください"); return; }
 
-  // message format MUST match server: sender->recipient:amount (8 decimals)
-  const message = `${publicKey}->${recipient}:${amount}`;
-  const key = ec.keyFromPrivate(privateKey, 'hex');
-  const signature = key.sign(message).toDER('hex');
-
-  const payload = { sender: publicKey, recipient, amount, signature };
-
+  const payload = { sender: publicKey, recipient, amount };
   const res = await fetch('/transactions/new', {
-    method: 'POST',
-    headers: {'Content-Type':'application/json'},
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
     body: JSON.stringify(payload)
   });
-
   const text = await res.text();
   document.getElementById('txResult').innerText = text;
 };
 
-// balance form
 document.getElementById('balanceForm').onsubmit = async function(e){
   e.preventDefault();
   let address = e.target.address.value.trim();
-  if(!address) {
-    address = loadKeys().publicKey;
-    if(!address) { alert("アドレスが指定されていません"); return; }
-  }
+  if(!address) address = loadKeys().publicKey;
   await updateBalance(address);
 };
 
@@ -148,34 +131,23 @@ async function updateBalance(address){
   document.getElementById('balance').innerText = `残高: ${j.balance}`;
 }
 
-// load full chain
 document.getElementById('loadChainBtn').onclick = loadChain;
 async function loadChain(){
   const res = await fetch('/chain');
   const j = await res.json();
   let out = "";
-  j.chain.forEach((block, idx) => {
-    out += `Block #${idx}\n`;
-    out += `Timestamp: ${new Date(block.timestamp * 1000).toLocaleString()}\n`;
-    out += `Hash: ${block.hash}\n`;
-    out += `Prev: ${block.prev_hash}\n`;
-    out += `Transactions:\n`;
-    if(!block.transactions || block.transactions.length === 0) {
-      out += "  (none)\n";
-    } else {
-      block.transactions.forEach(tx => {
-        out += `  ${tx.sender} -> ${tx.recipient} : ${tx.amount}`;
-        if(tx.signature) out += ` (sig:${tx.signature.slice(0,12)}...)`;
-        out += "\n";
-      });
-    }
+  j.chain.forEach((block, idx)=>{
+    out += `Block #${idx}\nTimestamp: ${new Date(block.timestamp*1000).toLocaleString()}\nHash: ${block.hash}\nPrev: ${block.prev_hash}\nTransactions:\n`;
+    if(!block.transactions || block.transactions.length===0) out += "  (none)\n";
+    else block.transactions.forEach(tx=>{
+      out += `  ${tx.sender} -> ${tx.recipient} : ${tx.amount}\n`;
+    });
     out += "\n-------------------------\n";
   });
   document.getElementById('history').innerText = out;
 }
 
-// mining (use local publicKey automatically, send as POST, show status)
-let mining = false;
+let mining=false;
 document.getElementById('mineBtn').onclick = async function(){
   if(mining) return;
   const { publicKey } = loadKeys();
@@ -187,44 +159,34 @@ document.getElementById('mineBtn').onclick = async function(){
 
   try {
     const res = await fetch('/mine', {
-      method: 'POST',
-      headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({ miner: publicKey })
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({miner: publicKey})
     });
     if(!res.ok){
-      const txt = await res.text();
-      statusEl.innerText = "Error: " + txt;
+      statusEl.innerText = "Error: "+await res.text();
     } else {
       const j = await res.json();
       statusEl.innerText = `Block mined: ${j.block_hash} (miner: ${j.miner})`;
-      // update local view
       await updateBalance(j.miner);
       await loadChain();
     }
-  } catch (err) {
-    statusEl.innerText = "Error: " + err;
+  } catch(err){
+    statusEl.innerText = "Error: "+err;
   } finally {
-    mining = false;
-    setTimeout(()=>{ document.getElementById('mineStatus').innerText = ""; }, 4000);
+    mining=false;
+    setTimeout(()=>{ document.getElementById('mineStatus').innerText=""; }, 4000);
   }
 };
 
-// Socket.IO updates
-socket.on('connect', ()=>{ /* connected */ });
-socket.on('update', async (data) => {
-  // update balance for current user and reload chain
+socket.on('update', async data=>{
   const pub = loadKeys().publicKey;
   if(pub) await updateBalance(pub);
   else await updateBalance();
   await loadChain();
 });
 
-// initial UI
-updateKeysUI();
-updateBalance();
-loadChain();
-
-// fallback polling
+updateKeysUI(); updateBalance(); loadChain();
 setInterval(()=>{ loadChain(); }, 15000);
 </script>
 </body>
