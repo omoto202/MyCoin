@@ -1,178 +1,123 @@
 <!DOCTYPE html>
 <html>
 <head>
-<meta charset="UTF-8">
-<title>MyCoin P2P Wallet</title>
+<meta charset="utf-8">
+<title>MyCoin Wallet</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/elliptic/6.6.1/elliptic.min.js"></script>
 <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
 <style>
-body{font-family:Arial;padding:20px;background:#f5f5f5}
-input{margin:5px 0;padding:5px;width:300px}
-button{padding:6px 12px;margin-right:8px}
-#result,#balance,#history,#keys,#mineResult{margin-top:20px}
-textarea{width:100%;resize:none}
-.block{background:#fff;padding:10px;border-radius:6px;margin-bottom:10px}
-.mining { color: orange; font-weight: bold; }
-.mined  { color: green; font-weight: bold; }
+body { font-family: Arial, sans-serif; padding: 20px; background: #f7f7f7; }
+input { padding: 6px; margin: 6px 0; width: 320px; }
+button { padding: 6px 10px; margin: 4px; }
+textarea { width: 100%; }
+.block { background: #fff; padding: 12px; border-radius: 6px; margin-bottom: 12px; }
+#history { white-space: pre-wrap; background:#f9f9f9; padding:8px; border-radius:4px; }
 </style>
 </head>
 <body>
-<h1>MyCoin P2P Wallet</h1>
+<h1>MyCoin Wallet</h1>
 
 <div class="block">
   <h2>鍵管理</h2>
-  <button id="btnGen">鍵ペア生成</button>
-  <button id="btnReset">鍵ペアリセット</button>
-  <div id="keys"></div>
+  <button id="genBtn">鍵ペア生成</button>
+  <button id="resetBtn">鍵ペアリセット</button>
+  <div id="keys">鍵がありません。</div>
 </div>
 
 <div class="block">
-  <h2>トークン送信</h2>
+  <h2>送金</h2>
   <form id="txForm">
-    <input name="recipient" placeholder="受信者アドレス(hex 公開鍵)" required /><br />
-    <input name="amount" type="number" step="0.01" placeholder="金額" required /><br />
+    <input name="recipient" placeholder="受信者の公開鍵 (hex)" required><br>
+    <input name="amount" placeholder="金額 (例: 1.2345)" required><br>
     <button type="submit">送信</button>
   </form>
-  <div id="result"></div>
+  <div id="txResult"></div>
 </div>
 
 <div class="block">
   <h2>残高確認</h2>
   <form id="balanceForm">
-    <input name="address" placeholder="アドレスを入力 (空で自分の公開鍵)" />
+    <input name="address" placeholder="アドレスを入力（空で自分の公開鍵）"><br>
     <button type="submit">残高取得</button>
   </form>
   <div id="balance">残高: -</div>
 </div>
 
 <div class="block">
-  <h2>ブロックチェーン全体の履歴</h2>
-  <button id="loadChain">全履歴を表示</button>
-  <div id="history" style="margin-top:10px;white-space:pre-wrap;background:#fafafa;padding:10px;border-radius:6px"></div>
+  <h2>チェーン全体</h2>
+  <button id="loadChainBtn">全履歴を表示</button>
+  <div id="history"></div>
 </div>
 
 <div class="block">
   <h2>マイニング</h2>
   <button id="mineBtn">マイニング開始</button>
-  <span id="mineResult"></span>
+  <div id="mineStatus"></div>
 </div>
 
 <script>
-const EC = elliptic.ec;
-const ec = new EC('secp256k1');
+// elliptic setup
+const ec = new elliptic.ec('secp256k1');
 const socket = io();
 
-// UI elements
-const keysDiv = document.getElementById('keys');
-const resultDiv = document.getElementById('result');
-const balanceDiv = document.getElementById('balance');
-const historyDiv = document.getElementById('history');
-const mineResultSpan = document.getElementById('mineResult');
-
-document.getElementById('btnGen').onclick = generateKeys;
-document.getElementById('btnReset').onclick = resetKeys;
-document.getElementById('loadChain').onclick = loadChain;
-document.getElementById('mineBtn').onclick = mine;
-
-function saveKeys(pub, priv){
+// helper: store/load keys
+function saveKeys(pub, priv) {
   localStorage.setItem('publicKey', pub);
   localStorage.setItem('privateKey', priv);
 }
-
-function loadKeys(){
+function loadKeys() {
   return {
     publicKey: localStorage.getItem('publicKey'),
     privateKey: localStorage.getItem('privateKey')
   };
 }
-
-function updateKeysUI(){
-  const {publicKey, privateKey} = loadKeys();
-  if(publicKey && privateKey){
-    keysDiv.innerHTML = `<b>公開鍵:</b><br><textarea rows="2">${publicKey}</textarea>
-    <b>秘密鍵:</b><br><textarea rows="2">${privateKey}</textarea>`;
+function updateKeysUI() {
+  const { publicKey, privateKey } = loadKeys();
+  const el = document.getElementById('keys');
+  if(publicKey && privateKey) {
+    el.innerHTML = `<div><b>公開鍵</b><br><textarea rows="2">${publicKey}</textarea></div>
+                    <div><b>秘密鍵</b><br><textarea rows="2">${privateKey}</textarea></div>`;
   } else {
-    keysDiv.innerHTML = "<i>鍵ペアがありません。生成してください。</i>";
+    el.innerText = "鍵がありません。生成してください。";
   }
 }
 
-function generateKeys(){
+// generate keys
+document.getElementById('genBtn').onclick = function(){
   const key = ec.genKeyPair();
   const priv = key.getPrivate('hex');
-  const pub = key.getPublic('hex'); // 04 + x + y (hex)
+  const pub = key.getPublic('hex'); // uncompressed hex starting with '04'
   saveKeys(pub, priv);
   updateKeysUI();
-  updateBalance();
-  loadChain();
-  alert("鍵ペアを生成しました。公開鍵を相手に渡すと送金できます。");
-}
+  updateBalance(); loadChain();
+};
 
-function resetKeys(){
+// reset keys
+document.getElementById('resetBtn').onclick = function(){
   localStorage.removeItem('publicKey');
   localStorage.removeItem('privateKey');
   updateKeysUI();
-  balanceDiv.innerText = "残高: -";
-  historyDiv.innerHTML = "";
-}
+  document.getElementById('balance').innerText = "残高: -";
+  document.getElementById('history').innerText = "";
+};
 
-async function updateBalance(address){
-  let addr = address;
-  if(!addr) addr = localStorage.getItem('publicKey');
-  if(!addr){ balanceDiv.innerText = "残高: -"; return; }
-  const res = await fetch('/balance/' + addr);
-  const json = await res.json();
-  balanceDiv.innerText = `残高: ${json.balance}`;
-}
-
-async function loadChain(){
-  const res = await fetch('/chain');
-  const json = await res.json();
-  let out = "";
-  json.chain.forEach((block, idx) => {
-    out += `🧱 ブロック #${idx}\n`;
-    out += `Timestamp: ${new Date(block.timestamp * 1000).toLocaleString()}\n`;
-    out += `Hash: ${block.hash}\n`;
-    out += `Prev: ${block.prev_hash}\n`;
-    out += `Transactions:\n`;
-    if(!block.transactions || block.transactions.length === 0){
-      out += "  （トランザクションなし）\n";
-    } else {
-      block.transactions.forEach(tx => {
-        out += `  ${tx.sender} -> ${tx.recipient} : ${tx.amount}`;
-        if(tx.signature) out += ` (sig:${tx.signature.slice(0,20)}...)`;
-        out += `\n`;
-      });
-    }
-    out += `\n--------------------------------------\n`;
-  });
-  historyDiv.innerText = out;
-}
-
-// ---------------------
-// 送金（署名付き）
-// ---------------------
+// transaction submit (署名付き、amount を 8桁固定で送る)
 document.getElementById('txForm').onsubmit = async function(e){
   e.preventDefault();
-  const {privateKey, publicKey} = loadKeys();
-  if(!privateKey || !publicKey){
-    alert("まず鍵ペアを生成してください。");
-    return;
-  }
-  const recipient = e.target.recipient.value.trim();
-  const amount = parseFloat(e.target.amount.value);
-  if(!recipient || !amount) { alert("入力してください"); return; }
+  const { publicKey, privateKey } = loadKeys();
+  if(!publicKey || !privateKey) { alert("鍵を生成してください"); return; }
 
-  // 同じメッセージフォーマットをサーバー側と合わせる
-  const message = `${publicKey}->${recipient}:${Number(amount).toFixed(8)}`;
+  const recipient = e.target.recipient.value.trim();
+  const amountRaw = parseFloat(e.target.amount.value);
+  if(!recipient || isNaN(amountRaw)) { alert("正しい入力をしてください"); return; }
+  const amount = amountRaw.toFixed(8);
+
+  // message format MUST match server: sender->recipient:amount (8 decimals)
+  const message = `${publicKey}->${recipient}:${amount}`;
   const key = ec.keyFromPrivate(privateKey, 'hex');
   const signature = key.sign(message).toDER('hex');
-  
-  const payload = {
-    sender: publicKey,
-    recipient,
-    amount,
-    signature
-  };
+
+  const payload = { sender: publicKey, recipient, amount, signature };
 
   const res = await fetch('/transactions/new', {
     method: 'POST',
@@ -181,36 +126,64 @@ document.getElementById('txForm').onsubmit = async function(e){
   });
 
   const text = await res.text();
-  resultDiv.innerText = text;
+  document.getElementById('txResult').innerText = text;
 };
 
-// ---------------------
-// 残高フォーム
-// ---------------------
+// balance form
 document.getElementById('balanceForm').onsubmit = async function(e){
   e.preventDefault();
-  const address = e.target.address.value.trim();
+  let address = e.target.address.value.trim();
+  if(!address) {
+    address = loadKeys().publicKey;
+    if(!address) { alert("アドレスが指定されていません"); return; }
+  }
   await updateBalance(address);
 };
 
-// ---------------------
-// マイニング（即時ブロックに報酬を入れる）
-// ---------------------
-let mining = false;
-async function mine(){
-  if(mining) return;
-  const {publicKey} = loadKeys();
-  if(!publicKey){
-    alert("まず鍵ペアを生成してください。");
-    return;
-  }
+async function updateBalance(address){
+  const addr = address || loadKeys().publicKey;
+  if(!addr) { document.getElementById('balance').innerText = "残高: -"; return; }
+  const res = await fetch('/balance/' + addr);
+  const j = await res.json();
+  document.getElementById('balance').innerText = `残高: ${j.balance}`;
+}
 
-  // UI 表示：マイニング中
+// load full chain
+document.getElementById('loadChainBtn').onclick = loadChain;
+async function loadChain(){
+  const res = await fetch('/chain');
+  const j = await res.json();
+  let out = "";
+  j.chain.forEach((block, idx) => {
+    out += `Block #${idx}\n`;
+    out += `Timestamp: ${new Date(block.timestamp * 1000).toLocaleString()}\n`;
+    out += `Hash: ${block.hash}\n`;
+    out += `Prev: ${block.prev_hash}\n`;
+    out += `Transactions:\n`;
+    if(!block.transactions || block.transactions.length === 0) {
+      out += "  (none)\n";
+    } else {
+      block.transactions.forEach(tx => {
+        out += `  ${tx.sender} -> ${tx.recipient} : ${tx.amount}`;
+        if(tx.signature) out += ` (sig:${tx.signature.slice(0,12)}...)`;
+        out += "\n";
+      });
+    }
+    out += "\n-------------------------\n";
+  });
+  document.getElementById('history').innerText = out;
+}
+
+// mining (use local publicKey automatically, send as POST, show status)
+let mining = false;
+document.getElementById('mineBtn').onclick = async function(){
+  if(mining) return;
+  const { publicKey } = loadKeys();
+  if(!publicKey) { alert("鍵を生成してください"); return; }
+
   mining = true;
-  const btn = document.getElementById('mineBtn');
-  btn.disabled = true;
-  mineResultSpan.className = 'mining';
-  mineResultSpan.innerText = 'Mining...';
+  const statusEl = document.getElementById('mineStatus');
+  statusEl.innerText = "マイニング中...";
 
   try {
     const res = await fetch('/mine', {
@@ -220,54 +193,39 @@ async function mine(){
     });
     if(!res.ok){
       const txt = await res.text();
-      mineResultSpan.className = '';
-      mineResultSpan.innerText = 'Error: ' + txt;
+      statusEl.innerText = "Error: " + txt;
     } else {
       const j = await res.json();
-      mineResultSpan.className = 'mined';
-      mineResultSpan.innerText = `Block mined (${j.block_hash}) — reward -> ${j.miner}`;
-      // 即時残高更新と履歴更新
-      await updateBalance(publicKey);
+      statusEl.innerText = `Block mined: ${j.block_hash} (miner: ${j.miner})`;
+      // update local view
+      await updateBalance(j.miner);
       await loadChain();
     }
-  } catch(err){
-    mineResultSpan.className = '';
-    mineResultSpan.innerText = 'Error: ' + err;
+  } catch (err) {
+    statusEl.innerText = "Error: " + err;
   } finally {
     mining = false;
-    btn.disabled = false;
-    // 3秒後に色を戻す（任意）
-    setTimeout(()=>{ mineResultSpan.className = ''; }, 3000);
+    setTimeout(()=>{ document.getElementById('mineStatus').innerText = ""; }, 4000);
   }
-}
+};
 
-// ---------------------
-// Socket.IO リアルタイム更新
-// ---------------------
-socket.on('connect', ()=>console.log('Socket connected'));
-socket.on('disconnect', ()=>console.log('Socket disconnected'));
-
-// サーバーが 'update' を emit するので受け取る
+// Socket.IO updates
+socket.on('connect', ()=>{ /* connected */ });
 socket.on('update', async (data) => {
-  // data.type は 'transaction' か 'block'
-  console.log('update received', data);
-  // 履歴・残高を自動更新（自分の公開鍵を参照）
-  const pub = localStorage.getItem('publicKey');
-  if(pub) {
-    await updateBalance(pub);
-  } else {
-    await updateBalance();
-  }
+  // update balance for current user and reload chain
+  const pub = loadKeys().publicKey;
+  if(pub) await updateBalance(pub);
+  else await updateBalance();
   await loadChain();
 });
 
-// 起動時
+// initial UI
 updateKeysUI();
 updateBalance();
 loadChain();
 
-// 自動ポーリング（念のため、Socket が届わない場合のフォールバック）
-setInterval(async ()=>{ await loadChain(); }, 15000);
+// fallback polling
+setInterval(()=>{ loadChain(); }, 15000);
 </script>
 </body>
 </html>
