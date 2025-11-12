@@ -163,10 +163,10 @@ document.getElementById('txForm').onsubmit = async function(e){
   if(!recipient || !amount) { alert("入力してください"); return; }
 
   // 同じメッセージフォーマットをサーバー側と合わせる
-  const message = `${publicKey}->${recipient}:${amount}`;
+  const message = `${publicKey}->${recipient}:${Number(amount).toFixed(8)}`;
   const key = ec.keyFromPrivate(privateKey, 'hex');
   const signature = key.sign(message).toDER('hex');
-
+  
   const payload = {
     sender: publicKey,
     recipient,
