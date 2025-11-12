@@ -27,8 +27,8 @@ textarea { width: 100%; }
 <div class="block">
   <h2>送金</h2>
   <form id="txForm">
-    <input name="recipient" placeholder="受信者の公開鍵 (hex)" required><br>
-    <input name="amount" placeholder="金額 (例: 1.2345)" required><br>
+    <input name="recipient" placeholder="受信者の公開鍵" required><br>
+    <input name="amount" placeholder="金額" required><br>
     <button type="submit">送信</button>
   </form>
   <div id="txResult"></div>
@@ -44,8 +44,7 @@ textarea { width: 100%; }
 </div>
 
 <div class="block">
-  <h2>チェーン全体</h2>
-  <button id="loadChainBtn">全履歴を表示</button>
+  <h2>ブロックチェーン</h2>
   <div id="history"></div>
 </div>
 
