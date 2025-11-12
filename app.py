@@ -71,15 +71,15 @@ class Blockchain:
             return False
         try:
             pub_hex = tx.sender
-            # elliptic の公開鍵は先頭に '04' がつく非圧縮形式が来ることが多いので対応
-            if pub_hex.startswith("04") or pub_hex.startswith("0x04"):
-                pub_hex_stripped = pub_hex[2:] if not pub_hex.startswith("0x") else pub_hex[4:]
-            else:
-                pub_hex_stripped = pub_hex
-            pub_bytes = bytes.fromhex(pub_hex_stripped)
+            # '04'プレフィックスを除去（ellipticは非圧縮公開鍵を返す）
+            if pub_hex.startswith("04"):
+                pub_hex = pub_hex[2:]
+            pub_bytes = bytes.fromhex(pub_hex)
             vk = VerifyingKey.from_string(pub_bytes, curve=SECP256k1)
-            # サイン検証に使うメッセージはクライアントと全く同じ文字列にする
-            message = f"{tx.sender}->{tx.recipient}:{tx.amount}".encode()
+
+            # amountの文字列形式を完全に揃える
+            message = f"{tx.sender}->{tx.recipient}:{float(tx.amount):.8f}".encode()
+
             sig_bytes = bytes.fromhex(tx.signature)
             return vk.verify(sig_bytes, message)
         except BadSignatureError:
