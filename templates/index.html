@@ -1,181 +1,149 @@
 <!DOCTYPE html>
-<html>
+<html lang="ja">
 <head>
-<meta charset="UTF-8">
-<title>MyCoin Wallet</title>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/elliptic/6.6.1/elliptic.min.js"></script>
-<script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
-<style>
-body{font-family:Arial;padding:20px;background:#f5f5f5}
-input{margin:5px 0;padding:5px;width:300px}
-button{padding:5px 10px}
-#result,#balance,#history,#keys,#mineResult{margin-top:20px}
-textarea{width:100%;resize:none}
-</style>
+  <meta charset="UTF-8">
+  <title>MyCoin Wallet</title>
+  <script src="https://cdn.jsdelivr.net/npm/elliptic@6.5.5/dist/elliptic.min.js"></script>
+  <script src="https://cdn.socket.io/4.3.2/socket.io.min.js"></script>
+  <style>
+    body { font-family: Arial; padding: 20px; background-color: #f5f5f5; }
+    input { margin: 5px 0; padding: 5px; width: 300px; }
+    button { padding: 5px 10px; margin-top: 5px; }
+    #result, #balance, #mineResult { margin-top: 20px; }
+    #history { margin-top: 20px; background: white; padding: 10px; border-radius: 10px; }
+  </style>
 </head>
 <body>
-<h1>MyCoin Wallet</h1>
+  <h1>MyCoin Wallet</h1>
 
-<h2>鍵管理</h2>
-<button onclick="generateKeys()">鍵ペア生成</button>
-<button onclick="resetKeys()">鍵ペアリセット</button>
-<div id="keys"></div>
+  <h2>鍵ペア生成</h2>
+  <button onclick="generateKeys()">鍵ペア生成</button>
+  <div id="keys"></div>
 
-<h2>コイン送信</h2>
-<form id="txForm">
-<input name="recipient" placeholder="受信者アドレス" required /><br />
-<input name="amount" type="number" step="0.01" placeholder="金額" required /><br />
-<button type="submit">送信</button>
-</form>
-<div id="result"></div>
+  <hr>
 
-<h2>残高確認</h2>
-<form id="balanceForm">
-  <input name="address" placeholder="アドレスを入力" required />
-  <button type="submit">残高取得</button>
-</form>
-<div id="balance"></div>
+  <h2>コイン送信</h2>
+  <form id="txForm">
+    <input name="recipient" placeholder="受信者の公開鍵" required /><br>
+    <input name="amount" type="number" step="0.01" placeholder="金額" required /><br>
+    <button type="submit">送信</button>
+  </form>
+  <div id="result"></div>
 
-<h2>トランザクション</h2>
-<button id="loadChain">履歴表示</button>
+  <hr>
 
-<div id="history" style="margin-top: 10px; white-space: pre-wrap; background: #fff; padding: 10px; border-radius: 8px;"></div>
+  <h2>残高確認</h2>
+  <button onclick="checkBalance()">残高を取得</button>
+  <div id="balance"></div>
 
-<script>
-  document.getElementById("loadChain").onclick = async function() {
-    const res = await fetch('/chain');
-    const json = await res.json();
+  <hr>
 
-    let text = "";
-    json.chain.forEach((block, index) => {
-      text += `ブロック #${index}\n`;
-      text += `Timestamp: ${new Date(block.timestamp * 1000).toLocaleString()}\n`;
-      text += `Hash: ${block.hash}\n`;
-      text += `Prev: ${block.prev_hash}\n`;
-      text += `Transactions:\n`;
+  <h2>マイニング</h2>
+  <button onclick="mine()">マイニング開始</button>
+  <div id="mineResult"></div>
 
-      if (block.transactions.length === 0) {
-        text += "  （トランザクションなし）\n";
-      } else {
-        block.transactions.forEach(tx => {
-          text += `  ${tx.sender} → ${tx.recipient}: ${tx.amount}\n`;
-        });
-      }
+  <hr>
 
-      text += `\n--------------------------------------\n`;
+  <h2>ブロックチェーン履歴</h2>
+  <div id="history"></div>
+
+  <script>
+    const ec = new elliptic.ec("secp256k1");
+    const socket = io();
+
+    function generateKeys() {
+      const key = ec.genKeyPair();
+      const privateKey = key.getPrivate("hex");
+      const publicKey = key.getPublic("hex");
+      localStorage.setItem("privateKey", privateKey);
+      localStorage.setItem("publicKey", publicKey);
+      document.getElementById("keys").innerText =
+        `公開鍵: ${publicKey.slice(0, 40)}...\n秘密鍵: ${privateKey.slice(0, 40)}...`;
+    }
+
+    async function checkBalance() {
+      const address = localStorage.getItem("publicKey");
+      if (!address) return alert("鍵ペアを生成してください。");
+      const res = await fetch("/balance/" + address);
+      const json = await res.json();
+      document.getElementById("balance").innerText =
+        `残高: ${json.balance} MyC`;
+    }
+
+    document.getElementById("txForm").onsubmit = async e => {
+      e.preventDefault();
+      const recipient = e.target.recipient.value;
+      const amount = parseFloat(e.target.amount.value);
+      const privateKey = localStorage.getItem("privateKey");
+      const publicKey = localStorage.getItem("publicKey");
+      if (!privateKey || !publicKey) return alert("鍵ペアを生成してください。");
+
+      const txData = JSON.stringify({ sender: publicKey, recipient, amount });
+      const hash = CryptoJS.SHA256(txData).toString();
+      const key = ec.keyFromPrivate(privateKey);
+      const signature = key.sign(hash).toDER();
+      const sigBase64 = btoa(String.fromCharCode(...signature));
+
+      const res = await fetch("/transactions/new", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sender: publicKey,
+          recipient,
+          amount,
+          signature: sigBase64
+        })
+      });
+      const text = await res.text();
+      document.getElementById("result").innerText = text;
+    };
+
+    async function mine() {
+      const publicKey = localStorage.getItem("publicKey");
+      if (!publicKey) return alert("鍵ペアを生成してください。");
+
+      const mineResult = document.getElementById("mineResult");
+      mineResult.innerText = "⛏️ マイニング中...";
+
+      const res = await fetch("/mine", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ miner: publicKey })
+      });
+
+      const json = await res.json();
+      mineResult.innerText = "✅ Block mined!\n残高: " + json.balance + " MyC";
+      loadChain();
+      checkBalance();
+    }
+
+    async function loadChain() {
+      const res = await fetch("/chain");
+      const json = await res.json();
+      const div = document.getElementById("history");
+      div.innerHTML = "";
+      json.chain.forEach(block => {
+        const b = document.createElement("div");
+        b.innerHTML = `<b>Block:</b> ${block.hash.slice(0, 20)}...<br>
+          <b>Tx:</b> ${block.transactions.length}<br><hr>`;
+        div.appendChild(b);
+      });
+    }
+
+    // 初期ロード
+    loadChain();
+    checkBalance();
+
+    // リアルタイム更新
+    socket.on("new_block", () => {
+      loadChain();
+      checkBalance();
     });
-
-    document.getElementById("history").innerText = text;
-  };
-</script>
-
-<h2>マイニング</h2>
-<button onclick="mine()">マイニング開始</button>
-<div id="mineResult"></div>
-
-<script>
-const EC = elliptic.ec;
-const ec = new EC('secp256k1');
-let socket = io();
-
-function generateKeys(){
-  const key = ec.genKeyPair();
-  localStorage.setItem('privateKey', key.getPrivate('hex'));
-  localStorage.setItem('publicKey', key.getPublic('hex'));
-  updateKeysUI();
-  updateBalance();
-  loadHistory();
-}
-
-function resetKeys(){
-  localStorage.removeItem('privateKey');
-  localStorage.removeItem('publicKey');
-  document.getElementById('keys').innerHTML = "<i>鍵ペアリセット済み</i>";
-  document.getElementById('balance').innerText = 0;
-  document.getElementById('history').innerHTML = "";
-}
-
-function updateKeysUI(){
-  const pub = localStorage.getItem('publicKey');
-  const priv = localStorage.getItem('privateKey');
-  if(pub && priv){
-    document.getElementById('keys').innerHTML = `
-      <b>公開鍵:</b><br><textarea rows="2">${pub}</textarea>
-      <b>秘密鍵:</b><br><textarea rows="2">${priv}</textarea>
-    `;
-  }
-}
-
-async function updateBalance(){
-  const pub = localStorage.getItem('publicKey');
-  if(pub){
-    const res = await fetch('/balance/' + pub);
-    const data = await res.json();
-    document.getElementById('balance').innerText = `残高: ${data.balance}`;
-  }
-}
-
-async function loadHistory(){
-  const address = document.getElementById('historyAddress').value || localStorage.getItem('publicKey');
-  if(!address) return;
-  const res = await fetch('/chain');
-  const data = await res.json();
-  let html = '';
-  data.chain.forEach(block=>{
-    block.transactions.forEach(tx=>{
-      if(tx.sender===address) html += `送金: ${tx.amount} → ${tx.recipient}<br>`;
-      else if(tx.recipient===address) html += `受取: ${tx.amount} ← ${tx.sender}<br>`;
+    socket.on("new_transaction", () => {
+      loadChain();
     });
-  });
-  document.getElementById('history').innerHTML = html;
-}
+  </script>
 
-document.getElementById("txForm").onsubmit = async function(e){
-  e.preventDefault();
-  const senderKey = localStorage.getItem('privateKey');
-  const pubKey = localStorage.getItem('publicKey');
-  if(!senderKey || !pubKey){
-    alert("鍵ペアがありません");
-    return;
-  }
-  const sender = pubKey;
-  const recipient = e.target.recipient.value;
-  const amount = parseFloat(e.target.amount.value);
-
-  const key = ec.keyFromPrivate(senderKey,'hex');
-  const msg = `${sender}->${recipient}:${amount}`;
-  const signature = key.sign(msg).toDER('hex');
-
-  const res = await fetch('/transactions/new',{
-    method:'POST',
-    headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({sender,recipient,amount,signature})
-  });
-  document.getElementById('result').innerText = await res.text();
-};
-
-document.getElementById("balanceForm").onsubmit = async function(e){
-  e.preventDefault();
-  const address = e.target.address.value;
-  const res = await fetch('/balance/' + address);
-  const data = await res.json();
-  document.getElementById('balance').innerText = `アドレス ${address} の残高: ${data.balance}`;
-};
-
-async function mine(){
-  const miner = localStorage.getItem('publicKey') || 'anonymous';
-  const res = await fetch('/mine?miner=' + miner);
-  document.getElementById('mineResult').innerText = await res.text();
-}
-
-socket.on('update', msg=>{
-  updateBalance();
-  loadHistory();
-});
-
-updateKeysUI();
-updateBalance();
-loadHistory();
-</script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
 </body>
 </html>
