@@ -1,15 +1,7 @@
-import asyncio
-import json
-import time
-import hashlib
-import threading
+import asyncio, json, time, hashlib, threading, websockets
 from flask import Flask, render_template, request, jsonify
 from flask_socketio import SocketIO
-import websockets
 
-# -------------------------
-# Data classes
-# -------------------------
 class Transaction:
     def __init__(self, sender, recipient, amount, signature=None):
         self.sender = sender
@@ -52,9 +44,6 @@ class Block:
             self.nonce += 1
             self.hash = self.calculate_hash()
 
-# -------------------------
-# Blockchain
-# -------------------------
 class Blockchain:
     def __init__(self):
         self.chain = [self.create_genesis_block()]
@@ -68,7 +57,6 @@ class Blockchain:
     def get_latest_block(self):
         return self.chain[-1]
 
-    # remove signature verification and balance check
     def create_transaction(self, tx: Transaction):
         self.pending_transactions.append(tx)
         return True
@@ -103,9 +91,6 @@ class Blockchain:
                     balance += amt
         return balance
 
-# -------------------------
-# Flask + SocketIO + P2P
-# -------------------------
 app = Flask(__name__)
 socketio = SocketIO(app, cors_allowed_origins="*")
 blockchain = Blockchain()
@@ -142,9 +127,6 @@ async def run_p2p_server(port=6000):
 def start_p2p_in_thread(port=6000):
     threading.Thread(target=lambda: asyncio.run(run_p2p_server(port)), daemon=True).start()
 
-# -------------------------
-# Routes
-# -------------------------
 @app.route('/')
 def index():
     return render_template('index.html')
@@ -215,9 +197,6 @@ def full_chain():
         })
     return jsonify({'length': len(chain_data), 'chain': chain_data})
 
-# -------------------------
-# Run
-# -------------------------
 if __name__ == '__main__':
     start_p2p_in_thread(port=6000)
     socketio.run(app, host='0.0.0.0', port=5000)
