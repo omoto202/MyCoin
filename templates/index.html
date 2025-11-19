@@ -267,13 +267,13 @@ document.getElementById('mineBtn').onclick = async function() {
   statusEl.innerText = "マイニング中...";
 
   try {
-    // 🔹 追加：マイニング前に必ず localStorage から最新のチェーンを読み込む
+    // 🔹 マイニング前に localStorage の最新チェーンを読み込む
     const savedChain = JSON.parse(localStorage.getItem('blockchain'));
     if (savedChain && savedChain.length > 0) {
       blockchain = savedChain;
     }
 
-    // サーバーにマイニングリクエストを送る
+    // サーバーにマイニングリクエスト
     const res = await fetch('/mine', {
       method: 'POST',
       headers: {'Content-Type':'application/json'},
@@ -286,17 +286,20 @@ document.getElementById('mineBtn').onclick = async function() {
       const j = await res.json();
       statusEl.innerText = `Block mined: ${j.block_hash} (miner: ${j.miner})`;
 
-      // 🔹 マイニング成功後、最新のチェーンを localStorage に保存
-      await loadChain(); // これでフロントの表示も更新される
+      // 🔹 最新チェーンを取得して画面反映
+      await loadChain();
+
+      // 🔹 localStorage に保存
       localStorage.setItem('blockchain', JSON.stringify(blockchain));
 
       await updateBalance(j.miner);
     }
+
   } catch (err) {
     statusEl.innerText = "Error: " + err;
   } finally {
     mining = false;
-    setTimeout(() => { document.getElementById('mineStatus').innerText = ""; }, 4000);
+    setTimeout(() => { document.getElementById('mineStatus').innerText = ""; }, 3000);
   }
 };
 
