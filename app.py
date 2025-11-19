@@ -151,30 +151,40 @@ def new_transaction():
     socketio.emit('update', {'type': 'transaction'})
     return 'Transaction accepted', 201
 
-@app.route('/mine', methods=['POST'])
-def mine():
-    values = request.get_json() or {}
-    miner = values.get('miner')
-    if not miner:
-        return 'Miner address required', 400
+@app.route('/mine_with_chain', methods=['POST'])
+def mine_with_chain():
+    data = request.get_json()
+    chain = data.get("chain")
 
-    new_block = blockchain.mine_pending_transactions(miner)
+    if chain is None or len(chain) == 0:
+        return jsonify({"error": "chain required"}), 400
 
-    try:
-        asyncio.run(broadcast({'type': 'new_block', 'data': {
-            'timestamp': new_block.timestamp,
-            'hash': new_block.hash
-        }}))
-    except:
-        pass
+    last_block = chain[-1]
+    last_hash = last_block["hash"]
 
-    socketio.emit('update', {'type': 'block', 'hash': new_block.hash, 'miner': miner})
+    # 新しいブロックを生成（transactions は任意で適用）
+    new_block = {
+        "index": last_block["index"] + 1,
+        "timestamp": time.time(),
+        "transactions": pending_transactions.copy(),
+        "previous_hash": last_hash,
+        "nonce": 0
+    }
 
-    return jsonify({
-        'message': 'Block mined successfully',
-        'miner': miner,
-        'block_hash': new_block.hash
-    }), 200
+    # PoW（簡略版）
+    while True:
+        block_string = json.dumps(new_block, sort_keys=True).encode()
+        block_hash = hashlib.sha256(block_string).hexdigest()
+        if block_hash.startswith("0000"):
+            break
+        new_block["nonce"] += 1
+
+    new_block["hash"] = block_hash
+
+    # pending をリセット
+    pending_transactions.clear()
+
+    return jsonify(new_block)
 
 @app.route('/balance/<address>')
 def balance(address):
